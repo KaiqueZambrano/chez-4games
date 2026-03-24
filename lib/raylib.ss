@@ -89,15 +89,6 @@
         (foreign-free (cdr entry))
         (loop)))))
 
-(define ftype-gc-thread
-  (fork-thread
-    (lambda ()
-      (let loop ()
-        (collect)
-        (drain-ftype-guardian!)
-        (sleep (make-time 'time-duration 100000000 0))
-        (loop)))))
-
 (define (free-ptr ptr)
   (foreign-free (ftype-pointer-address ptr)))
 
