@@ -117,7 +117,7 @@
           ((eqv? c #\[)  (read-array))
           ((eqv? c #\t)  (read-literal "true"  #t))
           ((eqv? c #\f)  (read-literal "false" #f))
-          ((eqv? c #\n)  (read-literal "null"  #f))
+          ((eqv? c #\n)  (read-literal "null"  'null))
           ((or (char-numeric? c) (eqv? c #\-)) (read-number))
           (else (error "json-parse" "unexpected character" c "at" pos)))))
 
@@ -131,3 +131,7 @@
 (define (json-get obj key)
   (let ((pair (assoc key obj)))
     (if pair (cdr pair) #f)))
+
+(define (json-null? v)   (eq? v 'null))
+(define (json-false? v)  (eq? v #f))
+(define (json-value? v)  (not (eq? v #f)))

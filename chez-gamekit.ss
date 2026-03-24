@@ -12,3 +12,6 @@
 (gamekit-load "animation.ss")
 (gamekit-load "game-loop.ss")
 (gamekit-load "tilemap.ss")
+
+; Required for animations
+(component position (x y))

@@ -76,6 +76,28 @@
 ;;;; CONSTRUCTORS & MEMORY
 ;;;; ============================================================
 
+(define ftype-guardian (make-guardian))
+
+(define (register-ftype-ptr! ptr)
+  (ftype-guardian (cons ptr (ftype-pointer-address ptr)))
+  ptr)
+
+(define (drain-ftype-guardian!)
+  (let loop ()
+    (let ([entry (ftype-guardian)])
+      (when entry
+        (foreign-free (cdr entry))
+        (loop)))))
+
+(define ftype-gc-thread
+  (fork-thread
+    (lambda ()
+      (let loop ()
+        (collect)
+        (drain-ftype-guardian!)
+        (sleep (make-time 'time-duration 100000000 0))
+        (loop)))))
+
 (define (free-ptr ptr)
   (foreign-free (ftype-pointer-address ptr)))
 
@@ -85,13 +107,13 @@
     (ftype-set! color (g) c g)
     (ftype-set! color (b) c b)
     (ftype-set! color (a) c a)
-    c))
+    (register-ftype-ptr! c)))
 
 (define (make-vec2 x y)
   (let ([v (make-ftype-pointer vector2 (foreign-alloc (ftype-sizeof vector2)))])
     (ftype-set! vector2 (x) v (exact->inexact x))
     (ftype-set! vector2 (y) v (exact->inexact y))
-    v))
+    (register-ftype-ptr! v)))
 
 (define (make-rect x y w h)
   (let ([r (make-ftype-pointer rectangle (foreign-alloc (ftype-sizeof rectangle)))])
@@ -99,7 +121,7 @@
     (ftype-set! rectangle (y)      r (exact->inexact y))
     (ftype-set! rectangle (width)  r (exact->inexact w))
     (ftype-set! rectangle (height) r (exact->inexact h))
-    r))
+    (register-ftype-ptr! r)))
 
 (define (make-camera2d target-x target-y offset-x offset-y zoom)
   (let ([c (make-ftype-pointer camera2d (foreign-alloc (ftype-sizeof camera2d)))])
@@ -109,7 +131,7 @@
     (ftype-set! camera2d (offset-y) c (exact->inexact offset-y))
     (ftype-set! camera2d (rotation) c 0.0)
     (ftype-set! camera2d (zoom)     c (exact->inexact zoom))
-    c))
+    (register-ftype-ptr! c)))
 
 ;;;; ============================================================
 ;;;; PREDEFINED COLORS

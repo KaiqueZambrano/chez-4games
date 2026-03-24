@@ -128,8 +128,10 @@
                (let loop ((tiles data) (i 0))
                  (unless (null? tiles)
                    (let ((gid (car tiles)))
-                     (when (> gid 0)   ; 0 = tile vazio
+                     (when (> gid 0)
                        (let* ((src  (tile-source tsets gid))
+                              (_ (unless src
+                                   (error "render-tilemap: no tileset found for gid" gid)))
                               (tex  (asset-ref (car src)))
                               (sx   (cadr src))
                               (sy   (caddr src))

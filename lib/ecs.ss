@@ -7,6 +7,7 @@
 (define entities              (make-eq-hashtable))
 (define component-defs        (make-eq-hashtable))
 (define systems               '())
+(define global-systems        '())
 (define event-queue           '())
 (define event-handlers        '())
 (define global-event-handlers '())
@@ -186,15 +187,26 @@
       ((_ name ((var : comp) ...) not (excl ...) body ...)
        (with-syntax ([eid (datum->syntax #'name 'entity-id)])
          #'(set! systems
-             (append systems
-               (list (list 'name '(comp ...) '(excl ...)
-                           (lambda (eid var ...) body ...)))))))
+             (cons (list 'name '(comp ...) '(excl ...)
+                         (lambda (eid var ...) body ...))
+                   systems))))
       ((_ name ((var : comp) ...) body ...)
        (with-syntax ([eid (datum->syntax #'name 'entity-id)])
          #'(set! systems
-             (append systems
-               (list (list 'name '(comp ...) '()
-                           (lambda (eid var ...) body ...))))))))))
+             (cons (list 'name '(comp ...) '()
+                         (lambda (eid var ...) body ...))
+                   systems)))))))
+
+;;;; ============================================================
+;;;; GLOBAL SYSTEM
+;;;; ============================================================
+
+(define-syntax global-system
+  (syntax-rules ()
+    ((_ name body ...)
+     (set! global-systems
+           (cons (cons 'name (lambda () body ...))
+                 global-systems)))))
 
 ;;;; ============================================================
 ;;;; EVENTS
@@ -217,7 +229,16 @@
              (unless (equal? (list->vector (sort given symbol<?))
                              (list->vector (sort expected symbol<?)))
                (error "emit: wrong fields for event" 'name
-                      (string-append "expected " (symbol->string (car expected))))))))
+                      (string-append "expected: "
+                                     (apply string-append
+                                            (map (lambda (s)
+                                                   (string-append (symbol->string s) " "))
+                                                 expected))
+                                     "got: "
+                                     (apply string-append
+                                            (map (lambda (s)
+                                                   (string-append (symbol->string s) " "))
+                                                 given))))))))
        (set! event-queue
              (append event-queue
                      (list (list 'name (list 'field val) ...))))))))
@@ -226,15 +247,15 @@
   (syntax-rules ()
     ((_ name (field ...) body ...)
      (set! event-handlers
-           (append event-handlers
-                   (list (cons 'name (lambda (field ...) body ...))))))))
+           (cons (cons 'name (lambda (field ...) body ...))
+                 event-handlers)))))
 
 (define-syntax on-global
   (syntax-rules ()
     ((_ name (field ...) body ...)
      (set! global-event-handlers
-           (append global-event-handlers
-                   (list (cons 'name (lambda (field ...) body ...))))))))
+           (cons (cons 'name (lambda (field ...) body ...))
+                 global-event-handlers)))))
 
 (define (dispatch)
   (let ((current-queue event-queue))
@@ -247,7 +268,7 @@
             (lambda (h)
               (when (eq? (car h) ev-name)
                 (apply (cdr h) args)))
-            (append event-handlers global-event-handlers))))
+            (append (reverse event-handlers) (reverse global-event-handlers))))))
       current-queue)))
 
 ;;;; ============================================================
@@ -260,17 +281,18 @@
         (on-enter enter-body ...)
         (on-exit  exit-body  ...))
      (set! scenes
-           (append scenes
-                   (list (list 'name
-                               (lambda () enter-body ...)
-                               (lambda () exit-body  ...))))))))
+           (cons (list 'name
+                       (lambda () enter-body ...)
+                       (lambda () exit-body  ...))
+                 scenes))))))
 
 (define (go-to* name)
   (when current-scene
-    (let ((cur (assoc current-scene scenes)))
+    (let ((cur (assq current-scene scenes)))
       (when cur ((caddr cur)))))
 
   (set! systems               '())
+  (set! global-systems        '())
   (set! event-handlers        '())
   (set! global-event-handlers '())
   (set! event-queue           '())
@@ -283,7 +305,7 @@
     (for-each despawn to-remove))
 
   (set! current-scene name)
-  (let ((next (assoc name scenes)))
+  (let ((next (assq name scenes)))
     (if next
         ((cadr next))
         (error "scene not found" name))))
@@ -305,7 +327,10 @@
         (for-each
           (lambda (e) (apply proc (car e) (cdr e)))
           (query required excluded))))
-    systems))
+    (reverse systems))
+  (for-each
+    (lambda (gsys) ((cdr gsys)))
+    (reverse global-systems)))
 
 (define (run)
   (run-systems)
