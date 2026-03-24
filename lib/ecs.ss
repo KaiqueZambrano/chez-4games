@@ -1,14 +1,18 @@
 ;;; ecs.ss
 
 ;;;; ============================================================
-;;;; ECS CORE
+;;;; GLOBAL STATE
 ;;;; ============================================================
 
-(define entities '())
-(define components '())
-(define systems '())
+(define entities       '())
+(define components     '())
+(define systems        '())
 
-(define next-id 0)
+(define event-types    '())
+(define event-queue    '())
+(define event-handlers '())
+
+(define next-id        0)
 
 (define (new-id)
   (set! next-id (+ next-id 1))
@@ -19,173 +23,215 @@
 ;;;; ============================================================
 
 (define (filter pred lst)
-  (let loop ((lst lst) (out '()))
+  (let loop ((lst lst) (acc '()))
     (cond
-      ((null? lst) (reverse out))
-      ((pred (car lst))
-       (loop (cdr lst) (cons (car lst) out)))
-      (else
-       (loop (cdr lst) out)))))
+      ((null? lst)      (reverse acc))
+      ((pred (car lst)) (loop (cdr lst) (cons (car lst) acc)))
+      (else             (loop (cdr lst) acc)))))
 
 ;;;; ============================================================
-;;;; COMPONENTS
+;;;; COMPONENT
 ;;;; ============================================================
 
-(define-syntax define-component
+(define-syntax component
   (syntax-rules ()
-    ((_ name field ...)
-     (set! components
-           (cons
-             (list 'name
-                   (list 'field #f) ...)
-             components)))))
+    ((_ name [field ...])
+     (set! components (cons '(name (field #f) ...) components)))
+    ((_ name)
+     (set! components (cons '(name) components)))))
 
-(define (make-component comp-name field-vals)
-  (let ((template (assoc comp-name components)))
-    (if (not template)
-        (error "Component not found" comp-name)
-        (cons
-          comp-name
-          (map
-            (lambda (val pair)
-              (list (car pair) val))
-            field-vals
-            (cdr template))))))
+(define (make-component name field-vals)
+  (let ((template (assoc name components)))
+    (cons name
+          (map (lambda (pair)
+                 (let ((given (assoc (car pair) field-vals)))
+                   (list (car pair) (if given (cadr given) #f))))
+               (cdr template)))))
 
 ;;;; ============================================================
-;;;; ENTITIES
+;;;; ENTITY
 ;;;; ============================================================
+
+(define (make-entity comp-list)
+  (let ((id (new-id)))
+    (set! entities (cons (cons id comp-list) entities))
+    id))
+
+(define-syntax entity
+  (syntax-rules ()
+    ((_ name [comp val ...] ...)
+     (define name
+       (make-entity
+         (list (make-component 'comp
+                 (map list
+                      (map car (cdr (assoc 'comp components)))
+                      '(val ...)))
+               ...))))))
 
 (define-syntax spawn
   (syntax-rules ()
-    ((_ (comp field ...) ...)
-     (let ((id (new-id)))
-       (set! entities
-             (cons
-               (cons id
-                     (list
-                       (make-component 'comp '(field ...))
-                       ...))
-               entities))
-       id))))
+    ((_ [comp val ...] ...)
+     (make-entity
+       (list (make-component 'comp
+               (map list
+                    (map car (cdr (assoc 'comp components)))
+                    '(val ...)))
+             ...)))))
 
-(define (despawn entity-id)
-  (set! entities
-        (filter
-          (lambda (e)
-            (not (= (car e) entity-id)))
-          entities)))
+(define (despawn id)
+  (set! entities (filter (lambda (e) (not (= (car e) id))) entities)))
 
 ;;;; ============================================================
 ;;;; COMPONENT ACCESS
 ;;;; ============================================================
 
-(define (get-field entity-id comp-name field-name)
-  (let* ((entity (assoc entity-id entities))
-         (comp   (assoc comp-name (cdr entity)))
-         (field  (assoc field-name (cdr comp))))
-    (cadr field)))
+(define (has-component? id name)
+  (and (assoc id entities)
+       (assoc name (cdr (assoc id entities)))))
 
-(define (set-field! entity-id comp-name field-name value)
-  (let* ((entity (assoc entity-id entities))
-         (comp   (assoc comp-name (cdr entity)))
-         (field  (assoc field-name (cdr comp))))
-    (set-car! (cdr field) value)))
+(define (add-component id name field-vals)
+  (let ((e (assoc id entities)))
+    (set-cdr! e (cons (make-component name field-vals) (cdr e)))))
 
-(define (add-component entity-id comp-name values)
-  (let* ((entity   (assoc entity-id entities))
-         (template (assoc comp-name components))
-         (new-comp
-           (cons
-             comp-name
-             (map
-               (lambda (pair val)
-                 (list (car pair) val))
-               (cdr template)
-               values))))
-    (set-cdr! entity
-              (cons new-comp (cdr entity)))))
-
-(define (remove-component entity-id comp-name)
-  (let ((entity (assoc entity-id entities)))
-    (set-cdr!
-      entity
-      (filter
-        (lambda (c)
-          (not (eq? (car c) comp-name)))
-        (cdr entity)))))
-
-;;;; ============================================================
-;;;; COMPONENT HELPERS
-;;;; ============================================================
+(define (remove-component id name)
+  (let ((e (assoc id entities)))
+    (set-cdr! e (filter (lambda (c) (not (eq? (car c) name))) (cdr e)))))
 
 (define (comp-get comp field)
   (cadr (assoc field (cdr comp))))
 
-(define (comp-set! comp field value)
-  (set-car! (cdr (assoc field (cdr comp))) value))
+(define (comp-set! comp field val)
+  (set-car! (cdr (assoc field (cdr comp))) val))
+
+(define (field-get id comp-name field)
+  (comp-get (assoc comp-name (cdr (assoc id entities))) field))
+
+(define (field-set! id comp-name field val)
+  (comp-set! (assoc comp-name (cdr (assoc id entities))) field val))
+
+(define-syntax get
+  (syntax-rules ()
+    ((_ comp field)          (comp-get   comp   'field))
+    ((_ id comp field)       (field-get  id 'comp 'field))))
+
+(define-syntax put!
+  (syntax-rules ()
+    ((_ comp field expr)     (comp-set!  comp   'field expr))
+    ((_ id comp field expr)  (field-set! id 'comp 'field expr))))
 
 ;;;; ============================================================
 ;;;; QUERY
 ;;;; ============================================================
 
-(define (query comp-names . rest)
+(define (query required . rest)
   (let ((excluded (if (null? rest) '() (car rest))))
 
-    (define (has-all? comps names)
-      (null? (filter (lambda (x) (not x))
-                     (map (lambda (n) (assoc n comps)) names))))
+    (define (has-all?  comps names) (for-all (lambda (n)     (assoc n comps)) names))
+    (define (has-none? comps names) (not (exists (lambda (n) (assoc n comps)) names)))
 
-    (define (has-none? comps names)
-      (null? (filter (lambda (x) x)
-                     (map (lambda (n) (assoc n comps)) names))))
-
-    (let loop ((es entities) (out '()))
+    (let loop ((es entities) (acc '()))
       (if (null? es)
-          (reverse out)
+          (reverse acc)
           (let* ((e     (car es))
-                 (id    (car e))
                  (comps (cdr e)))
-            (if (and (has-all?  comps comp-names)
-                     (has-none? comps excluded))
+            (if (and (has-all? comps required) (has-none? comps excluded))
                 (loop (cdr es)
-                      (cons (cons id
-                                  (map (lambda (n) (assoc n comps))
-                                       comp-names))
-                            out))
-                (loop (cdr es) out)))))))
+                      (cons (cons (car e)
+                                  (map (lambda (n) (assoc n comps)) required))
+                            acc))
+                (loop (cdr es) acc)))))))
 
 ;;;; ============================================================
-;;;; SYSTEMS
+;;;; SYSTEM
 ;;;; ============================================================
 
-(define-syntax define-system
-  (syntax-rules (not)
-    ((_ name (comp ...) not (excl ...) (id comp-arg ...) body ...)
-     (set! systems
-           (append systems
-             (list (list 'name
-                         '(comp ...)
-                         '(excl ...)
-                         (lambda (id comp-arg ...) body ...))))))
-    ((_ name (comp ...) (id comp-arg ...) body ...)
-     (set! systems
-           (append systems
-             (list (list 'name
-                         '(comp ...)
-                         '()
-                         (lambda (id comp-arg ...) body ...))))))))
+(define-syntax system
+  (lambda (stx)
+    (syntax-case stx (: & not)
+      ((_ name [var : comp] not [excl ...] body ...)
+       (with-syntax ([eid (datum->syntax #'name 'entity-id)])
+         #'(set! systems (append systems
+             (list (list 'name '(comp) '(excl ...)
+                         (lambda (eid var) body ...)))))))
+      ((_ name [var : comp] body ...)
+       (with-syntax ([eid (datum->syntax #'name 'entity-id)])
+         #'(set! systems (append systems
+             (list (list 'name '(comp) '()
+                         (lambda (eid var) body ...)))))))
+      ((_ name [var : comp & rest ...] not [excl ...] body ...)
+       #'(system-aux name [var : comp & rest ...] (excl ...) body ...))
+      ((_ name [var : comp & rest ...] body ...)
+       #'(system-aux name [var : comp & rest ...] () body ...)))))
+
+(define-syntax system-aux
+  (lambda (stx)
+    (syntax-case stx (: &)
+      ((_ name [var : comp] (excl ...) body ...)
+       (with-syntax ([eid (datum->syntax #'name 'entity-id)])
+         #'(set! systems (append systems
+             (list (list 'name '(comp) '(excl ...)
+                         (lambda (eid var) body ...)))))))
+      ((_ name [var : comp & rest ...] (excl ...) body ...)
+       #'(system-aux-acc name [rest ...] (comp) (excl ...) (var) body ...)))))
+
+(define-syntax system-aux-acc
+  (lambda (stx)
+    (syntax-case stx (: &)
+      ((_ name [var : comp] (comps ...) (excl ...) (vars ...) body ...)
+       (with-syntax ([eid (datum->syntax #'name 'entity-id)])
+         #'(set! systems (append systems
+             (list (list 'name '(comps ... comp) '(excl ...)
+                         (lambda (eid vars ... var) body ...)))))))
+      ((_ name [var : comp & rest ...] (comps ...) (excl ...) (vars ...) body ...)
+       #'(system-aux-acc name [rest ...] (comps ... comp) (excl ...) (vars ... var) body ...)))))
+
+;;;; ============================================================
+;;;; EVENTS
+;;;; ============================================================
+
+(define-syntax event
+  (syntax-rules ()
+    ((_ name [field ...])
+     (set! event-types (cons '(name field ...) event-types)))))
+
+(define-syntax emit
+  (syntax-rules ()
+    ((_ name [field val] ...)
+     (set! event-queue
+           (append event-queue
+                   (list (list 'name (list 'field val) ...)))))))
+
+(define-syntax on
+  (syntax-rules ()
+    ((_ name [field ...] body ...)
+     (set! event-handlers
+           (append event-handlers
+                   (list (cons 'name (lambda (field ...) body ...))))))))
+
+(define (dispatch)
+  (for-each
+    (lambda (ev)
+      (let ((handler (assoc (car ev) event-handlers)))
+        (when handler
+          (apply (cdr handler) (map cadr (cdr ev))))))
+    event-queue)
+  (set! event-queue '()))
+
+;;;; ============================================================
+;;;; RUN
+;;;; ============================================================
 
 (define (run-systems)
   (for-each
     (lambda (sys)
-      (let ((comp-names (cadr sys))
-            (excluded   (caddr sys))
-            (proc       (cadddr sys)))
+      (let ((required (cadr  sys))
+            (excluded (caddr sys))
+            (proc     (cadddr sys)))
         (for-each
-          (lambda (entity)
-            (apply proc
-                   (car entity)
-                   (cdr entity)))
-          (query comp-names excluded))))
+          (lambda (e) (apply proc (car e) (cdr e)))
+          (query required excluded))))
     systems))
+
+(define (run)
+  (run-systems)
+  (dispatch))
