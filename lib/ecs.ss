@@ -4,119 +4,155 @@
 ;;;; GLOBAL STATE
 ;;;; ============================================================
 
-(define entities       '())
-(define components     '())
-(define systems        '())
+(define entities        (make-eq-hashtable))
 
-(define event-types    '())
-(define event-queue    '())
-(define event-handlers '())
+(define component-defs  (make-eq-hashtable))
 
-(define next-id        0)
+(define systems         '())
+
+(define event-types     '())
+(define event-queue     '())
+
+(define event-handlers         '())
+(define global-event-handlers  '())
+
+(define scenes         '())
+(define current-scene  #f)
+
+(define *next-id* 0)
 
 (define (new-id)
-  (set! next-id (+ next-id 1))
-  next-id)
+  (set! *next-id* (+ *next-id* 1))
+  *next-id*)
 
 ;;;; ============================================================
-;;;; UTIL
+;;;; INTERNAL HELPERS
 ;;;; ============================================================
 
-(define (filter pred lst)
-  (let loop ((lst lst) (acc '()))
-    (cond
-      ((null? lst)      (reverse acc))
-      ((pred (car lst)) (loop (cdr lst) (cons (car lst) acc)))
-      (else             (loop (cdr lst) acc)))))
+(define (hashtable-for-each ht proc)
+  (vector-for-each
+    (lambda (k v) (proc k v))
+    (hashtable-keys ht)
+    (hashtable-values ht)))
+
+(define (entity-ref id)
+  (hashtable-ref entities id #f))
+
+(define (comp-ref id comp-name)
+  (let ((e (entity-ref id)))
+    (and e (hashtable-ref e comp-name #f))))
 
 ;;;; ============================================================
-;;;; COMPONENT
+;;;; COMPONENT DEFINITION
 ;;;; ============================================================
 
 (define-syntax component
   (syntax-rules ()
-    ((_ name [field ...])
-     (set! components (cons '(name (field #f) ...) components)))
+    ((_ name (field ...))
+     (hashtable-set! component-defs 'name '(field ...)))
     ((_ name)
-     (set! components (cons '(name) components)))))
+     (hashtable-set! component-defs 'name '()))))
 
-(define (make-component name field-vals)
-  (let ((template (assoc name components)))
-    (cons name
-          (map (lambda (pair)
-                 (let ((given (assoc (car pair) field-vals)))
-                   (list (car pair) (if given (cadr given) #f))))
-               (cdr template)))))
+(define (make-component comp-name field-vals)
+  (let* ((fields (hashtable-ref component-defs comp-name
+                   (lambda () (error "unknown component" comp-name))))
+         (ht     (make-eq-hashtable)))
+    (for-each (lambda (f)
+                (let ((given (assq f field-vals)))
+                  (hashtable-set! ht f (if given (cadr given) #f))))
+              fields)
+    ht))
 
 ;;;; ============================================================
-;;;; ENTITY
+;;;; ENTITY CREATION / DESTRUCTION
 ;;;; ============================================================
 
 (define (make-entity comp-list)
-  (let ((id (new-id)))
-    (set! entities (cons (cons id comp-list) entities))
+  (let ((id  (new-id))
+        (ht  (make-eq-hashtable)))
+    (for-each (lambda (pair)
+                (hashtable-set! ht (car pair) (cdr pair)))
+              comp-list)
+    (hashtable-set! entities id ht)
     id))
 
 (define-syntax entity
   (syntax-rules ()
-    ((_ name [comp val ...] ...)
+    ((_ name (comp val ...) ...)
      (define name
        (make-entity
-         (list (make-component 'comp
-                 (map list
-                      (map car (cdr (assoc 'comp components)))
-                      '(val ...)))
+         (list (cons 'comp
+                     (make-component 'comp
+                       (map list
+                            (hashtable-ref component-defs 'comp '())
+                            '(val ...))))
                ...))))))
 
 (define-syntax spawn
   (syntax-rules ()
-    ((_ [comp val ...] ...)
+    ((_ (comp val ...) ...)
      (make-entity
-       (list (make-component 'comp
-               (map list
-                    (map car (cdr (assoc 'comp components)))
-                    '(val ...)))
+       (list (cons 'comp
+                   (make-component 'comp
+                     (map list
+                          (hashtable-ref component-defs 'comp '())
+                          '(val ...))))
              ...)))))
 
 (define (despawn id)
-  (set! entities (filter (lambda (e) (not (= (car e) id))) entities)))
+  (hashtable-delete! entities id))
 
 ;;;; ============================================================
 ;;;; COMPONENT ACCESS
 ;;;; ============================================================
 
-(define (has-component? id name)
-  (and (assoc id entities)
-       (assoc name (cdr (assoc id entities)))))
+(define (has-component? id comp-name)
+  (let ((e (entity-ref id)))
+    (and e (hashtable-contains? e comp-name))))
 
-(define (add-component id name field-vals)
-  (let ((e (assoc id entities)))
-    (set-cdr! e (cons (make-component name field-vals) (cdr e)))))
+(define-syntax add-component
+  (syntax-rules ()
+    ((_ id comp)
+     (let ((e (entity-ref id)))
+       (hashtable-set! e 'comp (make-component 'comp '()))))
+    ((_ id comp (field val) ...)
+     (let ((e (entity-ref id)))
+       (hashtable-set! e 'comp
+         (make-component 'comp (list (list 'field val) ...)))))))
 
-(define (remove-component id name)
-  (let ((e (assoc id entities)))
-    (set-cdr! e (filter (lambda (c) (not (eq? (car c) name))) (cdr e)))))
+(define-syntax remove-component
+  (syntax-rules ()
+    ((_ id comp)
+     (let ((e (entity-ref id)))
+       (when e (hashtable-delete! e 'comp))))))
 
-(define (comp-get comp field)
-  (cadr (assoc field (cdr comp))))
+(define (comp-get comp-ht field)
+  (hashtable-ref comp-ht field
+    (lambda () (error "unknown field" field))))
 
-(define (comp-set! comp field val)
-  (set-car! (cdr (assoc field (cdr comp))) val))
+(define (comp-set! comp-ht field val)
+  (hashtable-set! comp-ht field val))
 
 (define (field-get id comp-name field)
-  (comp-get (assoc comp-name (cdr (assoc id entities))) field))
+  (let ((c (comp-ref id comp-name)))
+    (if c
+        (comp-get c field)
+        (error "component not found" comp-name id))))
 
 (define (field-set! id comp-name field val)
-  (comp-set! (assoc comp-name (cdr (assoc id entities))) field val))
+  (let ((c (comp-ref id comp-name)))
+    (if c
+        (comp-set! c field val)
+        (error "component not found" comp-name id))))
 
 (define-syntax get
   (syntax-rules ()
-    ((_ comp field)          (comp-get   comp   'field))
-    ((_ id comp field)       (field-get  id 'comp 'field))))
+    ((_ comp field)       (comp-get  comp     'field))
+    ((_ id comp field)    (field-get id 'comp 'field))))
 
 (define-syntax put!
   (syntax-rules ()
-    ((_ comp field expr)     (comp-set!  comp   'field expr))
+    ((_ comp field expr)     (comp-set!  comp     'field expr))
     ((_ id comp field expr)  (field-set! id 'comp 'field expr))))
 
 ;;;; ============================================================
@@ -124,22 +160,20 @@
 ;;;; ============================================================
 
 (define (query required . rest)
-  (let ((excluded (if (null? rest) '() (car rest))))
-
-    (define (has-all?  comps names) (for-all (lambda (n)     (assoc n comps)) names))
-    (define (has-none? comps names) (not (exists (lambda (n) (assoc n comps)) names)))
-
-    (let loop ((es entities) (acc '()))
-      (if (null? es)
-          (reverse acc)
-          (let* ((e     (car es))
-                 (comps (cdr e)))
-            (if (and (has-all? comps required) (has-none? comps excluded))
-                (loop (cdr es)
-                      (cons (cons (car e)
-                                  (map (lambda (n) (assoc n comps)) required))
-                            acc))
-                (loop (cdr es) acc)))))))
+  (let ((excluded (if (null? rest) '() (car rest)))
+        (acc      '()))
+    (hashtable-for-each entities
+      (lambda (id comp-ht)
+        (define (has-all?)
+          (for-all (lambda (n) (hashtable-contains? comp-ht n)) required))
+        (define (has-none?)
+          (not (exists (lambda (n) (hashtable-contains? comp-ht n)) excluded)))
+        (when (and (has-all?) (has-none?))
+          (set! acc
+            (cons (cons id (map (lambda (n) (hashtable-ref comp-ht n #f))
+                                required))
+                  acc)))))
+    acc))
 
 ;;;; ============================================================
 ;;;; SYSTEM
@@ -147,43 +181,19 @@
 
 (define-syntax system
   (lambda (stx)
-    (syntax-case stx (: & not)
-      ((_ name [var : comp] not [excl ...] body ...)
+    (syntax-case stx (: not)
+      ((_ name ((var : comp) ...) not (excl ...) body ...)
        (with-syntax ([eid (datum->syntax #'name 'entity-id)])
-         #'(set! systems (append systems
-             (list (list 'name '(comp) '(excl ...)
-                         (lambda (eid var) body ...)))))))
-      ((_ name [var : comp] body ...)
+         #'(set! systems
+             (append systems
+               (list (list 'name '(comp ...) '(excl ...)
+                           (lambda (eid var ...) body ...)))))))
+      ((_ name ((var : comp) ...) body ...)
        (with-syntax ([eid (datum->syntax #'name 'entity-id)])
-         #'(set! systems (append systems
-             (list (list 'name '(comp) '()
-                         (lambda (eid var) body ...)))))))
-      ((_ name [var : comp & rest ...] not [excl ...] body ...)
-       #'(system-aux name [var : comp & rest ...] (excl ...) body ...))
-      ((_ name [var : comp & rest ...] body ...)
-       #'(system-aux name [var : comp & rest ...] () body ...)))))
-
-(define-syntax system-aux
-  (lambda (stx)
-    (syntax-case stx (: &)
-      ((_ name [var : comp] (excl ...) body ...)
-       (with-syntax ([eid (datum->syntax #'name 'entity-id)])
-         #'(set! systems (append systems
-             (list (list 'name '(comp) '(excl ...)
-                         (lambda (eid var) body ...)))))))
-      ((_ name [var : comp & rest ...] (excl ...) body ...)
-       #'(system-aux-acc name [rest ...] (comp) (excl ...) (var) body ...)))))
-
-(define-syntax system-aux-acc
-  (lambda (stx)
-    (syntax-case stx (: &)
-      ((_ name [var : comp] (comps ...) (excl ...) (vars ...) body ...)
-       (with-syntax ([eid (datum->syntax #'name 'entity-id)])
-         #'(set! systems (append systems
-             (list (list 'name '(comps ... comp) '(excl ...)
-                         (lambda (eid vars ... var) body ...)))))))
-      ((_ name [var : comp & rest ...] (comps ...) (excl ...) (vars ...) body ...)
-       #'(system-aux-acc name [rest ...] (comps ... comp) (excl ...) (vars ... var) body ...)))))
+         #'(set! systems
+             (append systems
+               (list (list 'name '(comp ...) '()
+                           (lambda (eid var ...) body ...))))))))))
 
 ;;;; ============================================================
 ;;;; EVENTS
@@ -191,31 +201,79 @@
 
 (define-syntax event
   (syntax-rules ()
-    ((_ name [field ...])
+    ((_ name (field ...))
      (set! event-types (cons '(name field ...) event-types)))))
 
 (define-syntax emit
   (syntax-rules ()
-    ((_ name [field val] ...)
+    ((_ name (field val) ...)
      (set! event-queue
            (append event-queue
                    (list (list 'name (list 'field val) ...)))))))
 
 (define-syntax on
   (syntax-rules ()
-    ((_ name [field ...] body ...)
+    ((_ name (field ...) body ...)
      (set! event-handlers
            (append event-handlers
+                   (list (cons 'name (lambda (field ...) body ...))))))))
+
+(define-syntax on-global
+  (syntax-rules ()
+    ((_ name (field ...) body ...)
+     (set! global-event-handlers
+           (append global-event-handlers
                    (list (cons 'name (lambda (field ...) body ...))))))))
 
 (define (dispatch)
   (for-each
     (lambda (ev)
-      (let ((handler (assoc (car ev) event-handlers)))
-        (when handler
-          (apply (cdr handler) (map cadr (cdr ev))))))
+      (let ((ev-name (car ev))
+            (args    (map cadr (cdr ev))))
+        (for-each
+          (lambda (h)
+            (when (eq? (car h) ev-name)
+              (apply (cdr h) args)))
+          (append event-handlers global-event-handlers))))
     event-queue)
   (set! event-queue '()))
+
+;;;; ============================================================
+;;;; SCENE
+;;;; ============================================================
+
+(define-syntax scene
+  (syntax-rules (on-enter on-exit)
+    ((_ name
+        (on-enter enter-body ...)
+        (on-exit  exit-body  ...))
+     (set! scenes
+           (append scenes
+                   (list (list 'name
+                               (lambda () enter-body ...)
+                               (lambda () exit-body  ...))))))))
+
+(define (go-to name)
+  (when current-scene
+    (let ((cur (assoc current-scene scenes)))
+      (when cur ((caddr cur)))))
+
+  (set! systems         '())
+  (set! event-handlers  '())
+  (set! event-queue     '())
+
+  (let ((to-remove '()))
+    (hashtable-for-each entities
+      (lambda (id comp-ht)
+        (unless (hashtable-contains? comp-ht 'persistent)
+          (set! to-remove (cons id to-remove)))))
+    (for-each (lambda (id) (hashtable-delete! entities id)) to-remove))
+
+  (set! current-scene name)
+  (let ((next (assoc name scenes)))
+    (if next
+        ((cadr next))
+        (error "scene not found" name))))
 
 ;;;; ============================================================
 ;;;; RUN
@@ -224,8 +282,8 @@
 (define (run-systems)
   (for-each
     (lambda (sys)
-      (let ((required (cadr  sys))
-            (excluded (caddr sys))
+      (let ((required (cadr   sys))
+            (excluded (caddr  sys))
             (proc     (cadddr sys)))
         (for-each
           (lambda (e) (apply proc (car e) (cdr e)))
