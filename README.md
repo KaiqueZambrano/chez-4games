@@ -1,6 +1,7 @@
 # chez-gamekit
 
-Raylib bindings, an ECS, and game utilities for Chez Scheme. Built for personal use — simple 2D games.
+Raylib bindings, an ECS, and game utilities for Chez Scheme.
+Built for personal use — simple 2D games. No package system, no dependencies beyond Chez Scheme and raylib.
 
 ## Requirements
 
@@ -33,16 +34,17 @@ Camera 2D, audio, and `draw-texture-pro` are included but **untested** — they 
 
 A minimal ECS with a DSL. Entities and components are stored in hashtables.
 
+### Basic example
+
 ```scheme
+(load "lib/ecs.ss")
+
 (component position (x y))
 (component velocity (dx dy))
 (component health (hp))
-(component dead)                    ; tag — no fields
+(component dead)              ; tag — no fields
 
 (entity player (position 0 0) (velocity 1 2) (health 100))
-(entity wall   (position 5 5))
-
-(define bullet (spawn (position 10 10) (velocity 0 -1)))  ; dynamic entity
 
 (system movement ((pos : position) (vel : velocity)) not (dead)
   (put! pos x (+ (get pos x) (get vel dx)))
@@ -55,16 +57,52 @@ A minimal ECS with a DSL. Entities and components are stored in hashtables.
 
 (emit hit (target player) (damage 30))
 
+(run)
+```
+
+### Scene example
+
+```scheme
+(load "lib/ecs.ss")
+
+(component position (x y))
+(component velocity (dx dy))
+(component persistent)        ; survives scene transitions
+
+;;; player is defined here so it can be set! inside on-enter
+(define player #f)
+
+(event hit (target damage))
+
+;;; on-global handlers persist across scenes
+(on-global hit (target damage)
+  (display (list 'hit player 'damage damage)) (newline))
+
+(scene main-menu
+  (on-enter
+    (spawn (position 10 0))
+    (system render-menu ((pos : position))
+      (display (list 'menu-item entity-id)) (newline)))
+  (on-exit
+    (display "leaving menu") (newline)))
+
 (scene gameplay
   (on-enter
-    (set! player (spawn (position 0 0) (velocity 1 2) (health 100)))
-    (system movement ((pos : position) (vel : velocity)) not (dead)
+    (set! player (spawn (position 0 0) (velocity 1 2)))
+    (add-component player persistent)
+    (system movement ((pos : position) (vel : velocity))
       (put! pos x (+ (get pos x) (get vel dx)))
-      (put! pos y (+ (get pos y) (get vel dy)))))
+      (put! pos y (+ (get pos y) (get vel dy))))
+    (system render ((pos : position))
+      (display (list 'entity entity-id 'pos (get pos x) (get pos y))) (newline)))
   (on-exit
-    (display "leaving gameplay")))
+    (display "leaving gameplay") (newline)))
+
+(go-to 'main-menu)
+(run)
 
 (go-to 'gameplay)
+(run)
 (run)
 ```
 
@@ -97,8 +135,7 @@ A minimal ECS with a DSL. Entities and components are stored in hashtables.
 
 Inside a system, `entity-id` is always bound to the current entity's id.
 
-Entities tagged with `(add-component id persistent)` survive scene transitions.
-`entity` only works at the top level — use `spawn` + `set!` inside `on-enter`.
+`entity` only works at the top level — use `define` + `set!` + `spawn` inside `on-enter`.
 
 ## engine.ss
 
@@ -111,20 +148,14 @@ Adds asset management, sprite animation, and a structured game loop on top of `e
 
 (component position (x y))
 
-;;; assets
-(load-asset 'player "assets/player.png")
-
-;;; animation component is pre-defined in engine.ss:
-;;;   (component animation (asset frame-w frame-h frames fps frame elapsed))
-
 (define player #f)
 
 (scene gameplay
   (on-enter
+    (load-asset 'hero "assets/hero.png")
     (set! player (spawn
       (position 100 100)
-      (animation player 32 32 4 8 0 0.0)))
-
+      (animation hero 32 32 4 8 0 0.0)))
     (system input ((pos : position))
       (when (is-key-down key-right) (put! pos x (+ (get pos x) 2)))
       (when (is-key-down key-left)  (put! pos x (- (get pos x) 2)))
@@ -147,7 +178,7 @@ Adds asset management, sprite animation, and a structured game loop on top of `e
 | `(load-asset name path loader)` | Same, with a custom loader function |
 | `(get-asset name)` | Returns a cached asset |
 | `(unload-asset name)` | Removes an asset from the cache |
-| `*dt*` | Delta time for the current frame (set by `game-loop`) |
+| `*dt*` | Delta time for the current frame (updated every frame by `game-loop`) |
 | `(game-loop title w h fps)` | Opens window and runs the main loop |
 | `(game-loop title w h fps init)` | Same, calls `init` once before the loop |
 
