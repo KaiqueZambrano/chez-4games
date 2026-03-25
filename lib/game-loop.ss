@@ -7,6 +7,17 @@
 (define dt 0.0)
 
 ;;;; ============================================================
+;;;; TEXT INPUT
+;;;; ============================================================
+
+(define (text-input)
+  (let loop ((chars '()))
+    (let ((c (get-char-pressed)))
+      (if (= c 0)
+          (list->string (reverse chars))
+          (loop (cons (integer->char c) chars))))))
+
+;;;; ============================================================
 ;;;; GAME LOOP
 ;;;; ============================================================
 
@@ -23,6 +34,7 @@
           (unless (window-should-close)
             (set! dt (get-frame-time))
             (drain-ftype-guardian!)
+            (poll-input!)
             (begin-drawing)
             (clear-background raywhite)
             (run)

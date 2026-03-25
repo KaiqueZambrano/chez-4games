@@ -6,8 +6,7 @@
 
 (define entities              (make-eq-hashtable))
 (define component-defs        (make-eq-hashtable))
-(define systems               '())
-(define global-systems        '())
+(define pipeline              '())
 (define event-queue           '())
 (define event-handlers        '())
 (define global-event-handlers '())
@@ -51,7 +50,7 @@
                    (lambda () (error "unknown component" comp-name))))
          (ht     (make-eq-hashtable)))
     (unless (= (length field-vals) (length fields))
-      (error "make-component: wrong number of fields for component"
+      (error "make-component: wrong number of fields"
              comp-name
              (string-append "expected " (number->string (length fields))
                             ", got "    (number->string (length field-vals)))))
@@ -130,7 +129,7 @@
 
 (define (comp-get comp-ht field)
   (hashtable-ref comp-ht field
-    (lambda () (error "unknown field" field))))
+    (lambda () (error "comp-get: unknown field" field))))
 
 (define (comp-set! comp-ht field val)
   (hashtable-set! comp-ht field val))
@@ -139,13 +138,13 @@
   (let ((c (comp-ref id comp-name)))
     (if c
         (comp-get c field)
-        (error "component not found" comp-name id))))
+        (error "field-get: component not found" comp-name id))))
 
 (define (field-set! id comp-name field val)
   (let ((c (comp-ref id comp-name)))
     (if c
         (comp-set! c field val)
-        (error "component not found" comp-name id))))
+        (error "field-set!: component not found" comp-name id))))
 
 (define-syntax get
   (syntax-rules ()
@@ -186,16 +185,16 @@
     (syntax-case stx (: not)
       ((_ name ((var : comp) ...) not (excl ...) body ...)
        (with-syntax ([eid (datum->syntax #'name 'entity-id)])
-         #'(set! systems
-             (cons (list 'name '(comp ...) '(excl ...)
+         #'(set! pipeline
+             (cons (list 'entity 'name '(comp ...) '(excl ...)
                          (lambda (eid var ...) body ...))
-                   systems))))
+                   pipeline))))
       ((_ name ((var : comp) ...) body ...)
        (with-syntax ([eid (datum->syntax #'name 'entity-id)])
-         #'(set! systems
-             (cons (list 'name '(comp ...) '()
+         #'(set! pipeline
+             (cons (list 'entity 'name '(comp ...) '()
                          (lambda (eid var ...) body ...))
-                   systems)))))))
+                   pipeline)))))))
 
 ;;;; ============================================================
 ;;;; GLOBAL SYSTEM
@@ -204,9 +203,9 @@
 (define-syntax global-system
   (syntax-rules ()
     ((_ name body ...)
-     (set! global-systems
-           (cons (cons 'name (lambda () body ...))
-                 global-systems)))))
+     (set! pipeline
+           (cons (list 'global 'name (lambda () body ...))
+                 pipeline)))))
 
 ;;;; ============================================================
 ;;;; EVENTS
@@ -238,10 +237,10 @@
                                      (apply string-append
                                             (map (lambda (s)
                                                    (string-append (symbol->string s) " "))
-                                                 given))))))))
+                                                 given)))))))))
        (set! event-queue
              (append event-queue
-                     (list (list 'name (list 'field val) ...))))))))
+                     (list (list 'name (list 'field val) ...)))))))
 
 (define-syntax on
   (syntax-rules ()
@@ -268,7 +267,8 @@
             (lambda (h)
               (when (eq? (car h) ev-name)
                 (apply (cdr h) args)))
-            (append (reverse event-handlers) (reverse global-event-handlers))))))
+            (append (reverse event-handlers)
+                    (reverse global-event-handlers)))))
       current-queue)))
 
 ;;;; ============================================================
@@ -284,17 +284,15 @@
            (cons (list 'name
                        (lambda () enter-body ...)
                        (lambda () exit-body  ...))
-                 scenes))))))
+                 scenes)))))
 
 (define (go-to* name)
   (when current-scene
     (let ((cur (assq current-scene scenes)))
       (when cur ((caddr cur)))))
 
-  (set! systems               '())
-  (set! global-systems        '())
+  (set! pipeline              '())
   (set! event-handlers        '())
-  (set! global-event-handlers '())
   (set! event-queue           '())
 
   (let ((to-remove '()))
@@ -308,7 +306,7 @@
   (let ((next (assq name scenes)))
     (if next
         ((cadr next))
-        (error "scene not found" name))))
+        (error "go-to: scene not found" name))))
 
 (define-syntax go-to
   (syntax-rules ()
@@ -320,17 +318,18 @@
 
 (define (run-systems)
   (for-each
-    (lambda (sys)
-      (let ((required (cadr   sys))
-            (excluded (caddr  sys))
-            (proc     (cadddr sys)))
-        (for-each
-          (lambda (e) (apply proc (car e) (cdr e)))
-          (query required excluded))))
-    (reverse systems))
-  (for-each
-    (lambda (gsys) ((cdr gsys)))
-    (reverse global-systems)))
+    (lambda (entry)
+      (case (car entry)
+        ((entity)
+         (let ((required (list-ref entry 2))
+               (excluded (list-ref entry 3))
+               (proc     (list-ref entry 4)))
+           (for-each
+             (lambda (e) (apply proc (car e) (cdr e)))
+             (query required excluded))))
+        ((global)
+         ((list-ref entry 2)))))
+    (reverse pipeline)))
 
 (define (run)
   (run-systems)

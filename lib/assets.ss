@@ -1,7 +1,7 @@
 ;;; assets.ss
 
 ;;;; ============================================================
-;;;; ASSET MANAGER
+;;;; ASSET CACHE
 ;;;; ============================================================
 
 (define assets (make-eq-hashtable))
@@ -28,12 +28,12 @@
   (syntax-rules ()
     ((_ name)
      (let ((entry (hashtable-ref assets 'name
-                    (lambda () (error "asset not loaded" 'name)))))
+                    (lambda () (error "get-asset: not loaded" 'name)))))
        (car entry)))))
 
 (define (asset-ref name)
   (let ((entry (hashtable-ref assets name
-                 (lambda () (error "asset not loaded" name)))))
+                 (lambda () (error "asset-ref: not loaded" name)))))
     (car entry)))
 
 (define-syntax unload-asset

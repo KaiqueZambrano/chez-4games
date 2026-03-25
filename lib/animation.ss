@@ -7,7 +7,7 @@
 (component animation (texture frame-w frame-h row frames speed scale-x scale-y frame elapsed))
 
 ;;;; ============================================================
-;;;; FRAME UPDATE
+;;;; FRAME ADVANCE
 ;;;; ============================================================
 
 (define (make-animation-system)
@@ -51,6 +51,4 @@
                                (exact->inexact (* (abs scale-x) fw))
                                (exact->inexact (* (abs scale-y) fh))))
            (origin  (make-vec2 0.0 0.0)))
-      (when current-camera (begin-mode-2d current-camera))
-      (draw-texture-pro tex src dest origin 0.0 white)
-      (when current-camera (end-mode-2d)))))
+      (draw-texture-pro tex src dest origin 0.0 white))))

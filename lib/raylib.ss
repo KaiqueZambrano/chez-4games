@@ -18,12 +18,6 @@
     [x float]
     [y float]))
 
-(define-ftype vector3
-  (struct
-    [x float]
-    [y float]
-    [z float]))
-
 (define-ftype rectangle
   (struct
     [x      float]
@@ -73,7 +67,7 @@
     [ctx-data      void*]))
 
 ;;;; ============================================================
-;;;; CONSTRUCTORS & MEMORY
+;;;; MEMORY MANAGEMENT
 ;;;; ============================================================
 
 (define ftype-guardian (make-guardian))
@@ -92,13 +86,17 @@
 (define (free-ptr ptr)
   (foreign-free (ftype-pointer-address ptr)))
 
+;;;; ============================================================
+;;;; CONSTRUCTORS
+;;;; ============================================================
+
 (define (make-color r g b a)
   (let ([c (make-ftype-pointer color (foreign-alloc (ftype-sizeof color)))])
     (ftype-set! color (r) c r)
     (ftype-set! color (g) c g)
     (ftype-set! color (b) c b)
     (ftype-set! color (a) c a)
-    (register-ftype-ptr! c)))
+    c))
 
 (define (make-vec2 x y)
   (let ([v (make-ftype-pointer vector2 (foreign-alloc (ftype-sizeof vector2)))])
@@ -122,7 +120,7 @@
     (ftype-set! camera2d (offset-y) c (exact->inexact offset-y))
     (ftype-set! camera2d (rotation) c 0.0)
     (ftype-set! camera2d (zoom)     c (exact->inexact zoom))
-    (register-ftype-ptr! c)))
+    c))
 
 ;;;; ============================================================
 ;;;; PREDEFINED COLORS
@@ -156,7 +154,7 @@
 (define raywhite   (make-color 245 245 245 255))
 
 ;;;; ============================================================
-;;;; CORE FUNCTIONS
+;;;; CORE
 ;;;; ============================================================
 
 (define init-window           (foreign-procedure "InitWindow"          (int int string) void))
@@ -183,7 +181,7 @@
 (define get-time        (foreign-procedure "GetTime"       () double))
 
 ;;;; ============================================================
-;;;; DRAWING FUNCTIONS
+;;;; DRAWING
 ;;;; ============================================================
 
 (define clear-background    (foreign-procedure "ClearBackground"    ((& color)) void))
@@ -200,12 +198,12 @@
 (define draw-rectangle-rec   (foreign-procedure "DrawRectangleRec"    ((& rectangle) (& color)) void))
 (define draw-rectangle-lines (foreign-procedure "DrawRectangleLines"  (int int int int (& color)) void))
 
-(define draw-fps   (foreign-procedure "DrawFPS"         (int int) void))
-(define draw-text  (foreign-procedure "DrawText"        (string int int int (& color)) void))
-(define measure-text (foreign-procedure "MeasureText"   (string int) int))
+(define draw-fps     (foreign-procedure "DrawFPS"    (int int) void))
+(define draw-text    (foreign-procedure "DrawText"   (string int int int (& color)) void))
+(define measure-text (foreign-procedure "MeasureText" (string int) int))
 
 ;;;; ============================================================
-;;;; TEXTURE FUNCTIONS
+;;;; TEXTURES
 ;;;; ============================================================
 
 (define load-texture-ffi (foreign-procedure "LoadTexture" (string) (& texture2d)))
@@ -214,128 +212,104 @@
     (load-texture-ffi tex path)
     tex))
 
-(define unload-texture    (foreign-procedure "UnloadTexture"    ((& texture2d)) void))
-(define draw-texture      (foreign-procedure "DrawTexture"      ((& texture2d) int int (& color)) void))
-(define draw-texture-rec  (foreign-procedure "DrawTextureRec"   ((& texture2d) (& rectangle) (& vector2) (& color)) void))
-(define draw-texture-pro  (foreign-procedure "DrawTexturePro"   ((& texture2d) (& rectangle) (& rectangle) (& vector2) float (& color)) void))
+(define unload-texture   (foreign-procedure "UnloadTexture"   ((& texture2d)) void))
+(define draw-texture     (foreign-procedure "DrawTexture"     ((& texture2d) int int (& color)) void))
+(define draw-texture-rec (foreign-procedure "DrawTextureRec"  ((& texture2d) (& rectangle) (& vector2) (& color)) void))
+(define draw-texture-pro (foreign-procedure "DrawTexturePro"  ((& texture2d) (& rectangle) (& rectangle) (& vector2) float (& color)) void))
 
 ;;;; ============================================================
-;;;; INPUT FUNCTIONS
+;;;; INPUT — RAW
 ;;;; ============================================================
 
-(define is-key-pressed    (foreign-procedure "IsKeyPressed"   (int) boolean))
-(define is-key-down       (foreign-procedure "IsKeyDown"      (int) boolean))
-(define is-key-released   (foreign-procedure "IsKeyReleased"  (int) boolean))
-(define is-key-up         (foreign-procedure "IsKeyUp"        (int) boolean))
-(define set-exit-key      (foreign-procedure "SetExitKey"     (int) void))
-(define get-key-pressed   (foreign-procedure "GetKeyPressed"  () int))
-(define get-char-pressed  (foreign-procedure "GetCharPressed" () int))
+(define is-key-pressed   (foreign-procedure "IsKeyPressed"   (int) boolean))
+(define is-key-down      (foreign-procedure "IsKeyDown"      (int) boolean))
+(define is-key-released  (foreign-procedure "IsKeyReleased"  (int) boolean))
+(define is-key-up        (foreign-procedure "IsKeyUp"        (int) boolean))
+(define set-exit-key     (foreign-procedure "SetExitKey"     (int) void))
+(define get-key-pressed  (foreign-procedure "GetKeyPressed"  () int))
+(define get-char-pressed (foreign-procedure "GetCharPressed" () int))
 
-(define is-mouse-button-pressed   (foreign-procedure "IsMouseButtonPressed"   (int) boolean))
-(define is-mouse-button-down      (foreign-procedure "IsMouseButtonDown"      (int) boolean))
-(define is-mouse-button-released  (foreign-procedure "IsMouseButtonReleased"  (int) boolean))
-(define is-mouse-button-up        (foreign-procedure "IsMouseButtonUp"        (int) boolean))
-(define get-mouse-x               (foreign-procedure "GetMouseX"              () int))
-(define get-mouse-y               (foreign-procedure "GetMouseY"              () int))
-(define get-mouse-position-ffi    (foreign-procedure "GetMousePosition"       () (& vector2)))
+(define is-mouse-button-pressed  (foreign-procedure "IsMouseButtonPressed"  (int) boolean))
+(define is-mouse-button-down     (foreign-procedure "IsMouseButtonDown"     (int) boolean))
+(define is-mouse-button-released (foreign-procedure "IsMouseButtonReleased" (int) boolean))
+(define is-mouse-button-up       (foreign-procedure "IsMouseButtonUp"       (int) boolean))
+(define get-mouse-x              (foreign-procedure "GetMouseX"             () int))
+(define get-mouse-y              (foreign-procedure "GetMouseY"             () int))
+(define get-mouse-position-ffi   (foreign-procedure "GetMousePosition"      () (& vector2)))
 (define (get-mouse-position)
   (let ([v (make-ftype-pointer vector2 (foreign-alloc (ftype-sizeof vector2)))])
     (get-mouse-position-ffi v)
     v))
 
 ;;;; ============================================================
-;;;; AUDIO FUNCTIONS
+;;;; AUDIO
 ;;;; ============================================================
 
-(define init-audio-device    (foreign-procedure "InitAudioDevice"    () void))
-(define close-audio-device   (foreign-procedure "CloseAudioDevice"   () void))
-(define is-audio-device-ready (foreign-procedure "IsAudioDeviceReady" () boolean))
-(define set-master-volume    (foreign-procedure "SetMasterVolume"    (float) void))
+(define init-audio-device     (foreign-procedure "InitAudioDevice"     () void))
+(define close-audio-device    (foreign-procedure "CloseAudioDevice"    () void))
+(define is-audio-device-ready (foreign-procedure "IsAudioDeviceReady"  () boolean))
+(define set-master-volume     (foreign-procedure "SetMasterVolume"     (float) void))
 
-(define load-sound-ffi  (foreign-procedure "LoadSound"  (string) (& sound)))
+(define load-sound-ffi (foreign-procedure "LoadSound" (string) (& sound)))
 (define (load-sound path)
   (let ([s (make-ftype-pointer sound (foreign-alloc (ftype-sizeof sound)))])
     (load-sound-ffi s path)
     s))
 
-(define unload-sound    (foreign-procedure "UnloadSound"    ((& sound)) void))
-(define play-sound      (foreign-procedure "PlaySound"      ((& sound)) void))
-(define stop-sound      (foreign-procedure "StopSound"      ((& sound)) void))
-(define pause-sound     (foreign-procedure "PauseSound"     ((& sound)) void))
-(define resume-sound    (foreign-procedure "ResumeSound"    ((& sound)) void))
-(define is-sound-playing (foreign-procedure "IsSoundPlaying" ((& sound)) boolean))
+(define unload-sound     (foreign-procedure "UnloadSound"     ((& sound)) void))
+(define play-sound       (foreign-procedure "PlaySound"       ((& sound)) void))
+(define stop-sound       (foreign-procedure "StopSound"       ((& sound)) void))
+(define pause-sound      (foreign-procedure "PauseSound"      ((& sound)) void))
+(define resume-sound     (foreign-procedure "ResumeSound"     ((& sound)) void))
+(define is-sound-playing (foreign-procedure "IsSoundPlaying"  ((& sound)) boolean))
 
 ;;;; ============================================================
-;;;; CONSTANTS
+;;;; KEY CONSTANTS
 ;;;; ============================================================
 
-(define key-space          32)
-(define key-escape         256)
-(define key-enter          257)
-(define key-tab            258)
-(define key-backspace      259)
-(define key-insert         260)
-(define key-delete         261)
-(define key-right          262)
-(define key-left           263)
-(define key-down           264)
-(define key-up             265)
-(define key-f1             290)
-(define key-f2             291)
-(define key-f3             292)
-(define key-f4             293)
-(define key-f5             294)
-(define key-f6             295)
-(define key-f7             296)
-(define key-f8             297)
-(define key-f9             298)
-(define key-f10            299)
-(define key-f11            300)
-(define key-f12            301)
-(define key-left-shift     340)
-(define key-left-control   341)
-(define key-left-alt       342)
-(define key-right-shift    344)
-(define key-right-control  345)
-(define key-right-alt      346)
+(define key-space         32)
+(define key-escape       256)
+(define key-enter        257)
+(define key-tab          258)
+(define key-backspace    259)
+(define key-insert       260)
+(define key-delete       261)
+(define key-right        262)
+(define key-left         263)
+(define key-down         264)
+(define key-up           265)
+(define key-f1           290)
+(define key-f2           291)
+(define key-f3           292)
+(define key-f4           293)
+(define key-f5           294)
+(define key-f6           295)
+(define key-f7           296)
+(define key-f8           297)
+(define key-f9           298)
+(define key-f10          299)
+(define key-f11          300)
+(define key-f12          301)
+(define key-left-shift   340)
+(define key-left-control 341)
+(define key-left-alt     342)
+(define key-right-shift  344)
+(define key-right-control 345)
+(define key-right-alt    346)
 
-(define key-zero           48)
-(define key-one            49)
-(define key-two            50)
-(define key-three          51)
-(define key-four           52)
-(define key-five           53)
-(define key-six            54)
-(define key-seven          55)
-(define key-eight          56)
-(define key-nine           57)
-(define key-a              65)
-(define key-b              66)
-(define key-c              67)
-(define key-d              68)
-(define key-e              69)
-(define key-f              70)
-(define key-g              71)
-(define key-h              72)
-(define key-i              73)
-(define key-j              74)
-(define key-k              75)
-(define key-l              76)
-(define key-m              77)
-(define key-n              78)
-(define key-o              79)
-(define key-p              80)
-(define key-q              81)
-(define key-r              82)
-(define key-s              83)
-(define key-t              84)
-(define key-u              85)
-(define key-v              86)
-(define key-w              87)
-(define key-x              88)
-(define key-y              89)
-(define key-z              90)
+(define key-zero  48) (define key-one   49) (define key-two   50)
+(define key-three 51) (define key-four  52) (define key-five  53)
+(define key-six   54) (define key-seven 55) (define key-eight 56)
+(define key-nine  57)
 
-(define mouse-button-left    0)
-(define mouse-button-right   1)
-(define mouse-button-middle  2)
+(define key-a 65) (define key-b 66) (define key-c 67) (define key-d 68)
+(define key-e 69) (define key-f 70) (define key-g 71) (define key-h 72)
+(define key-i 73) (define key-j 74) (define key-k 75) (define key-l 76)
+(define key-m 77) (define key-n 78) (define key-o 79) (define key-p 80)
+(define key-q 81) (define key-r 82) (define key-s 83) (define key-t 84)
+(define key-u 85) (define key-v 86) (define key-w 87) (define key-x 88)
+(define key-y 89) (define key-z 90)
+
+(define mouse-button-left   0)
+(define mouse-button-right  1)
+(define mouse-button-middle 2)

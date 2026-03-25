@@ -45,8 +45,6 @@ Covers the basics for 2D games:
 
 Foreign memory (`make-vec2`, `make-rect`, `make-color`, `make-camera2d`) is managed automatically via a guardian drained once per frame by the game loop — no manual `free-ptr` calls needed in normal use. `free-ptr` remains available for explicit early release if needed.
 
-Camera 2D, audio, and `draw-texture-pro` are included but **untested** — they were mapped manually from raylib's internal struct layout and may not work correctly across raylib versions.
-
 ## json.ss
 
 A self-contained JSON parser. No dependencies.
