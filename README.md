@@ -1,13 +1,36 @@
-# chez-gamekit
+# Chez GameKit
 
-Minimal 2D ECS game framework for Chez Scheme, built on raylib.
+Minimal 2D ECS-based game framework for Chez Scheme, built on top of raylib.
+
+## Overview
+
+Chez GameKit is a lightweight 2D game development framework designed for use with [Chez Scheme](https://cisco.github.io/ChezScheme/). It leverages the powerful [raylib](https://www.raylib.com/) library for graphics and audio, and incorporates an Entity-Component-System (ECS) architecture for flexible and scalable game logic. This framework aims to provide a straightforward and efficient environment for creating 2D games in Scheme.
+
+## Features
+
+*   **Raylib Bindings**: Direct FFI (Foreign Function Interface) bindings to key raylib functionalities, including window management, drawing primitives, texture loading, audio, and input handling.
+*   **Entity-Component-System (ECS)**: A robust ECS architecture for organizing game objects and their behaviors. This includes:
+    *   **Components**: Data structures representing aspects of an entity (e.g., `position`, `velocity`, `sprite`).
+    *   **Entities**: Unique identifiers that group components.
+    *   **Systems**: Logic that operates on entities possessing specific sets of components.
+    *   **Scenes**: Manage game states, allowing for clear separation of game logic and assets.
+*   **Asset Management**: Simple asset loading and unloading mechanisms for textures and sounds, with support for custom loaders.
+*   **Camera System**: 2D camera functionalities, including following entities, clamping to world bounds, and zooming.
+*   **Sprite Animation**: Built-in sprite component and system for handling animated spritesheets.
+*   **Tilemap Support**: Integration with [Tiled](https://www.mapeditor.org/) maps exported as JSON, enabling easy level design and rendering.
+*   **Input Handling**: High-level input polling for keyboard and mouse, simplifying player interaction.
+*   **Game Loop**: A structured game loop that manages frame updates, input polling, and system execution.
 
 ## Requirements
 
-- [Chez Scheme](https://cisco.github.io/ChezScheme/)
-- [raylib](https://www.raylib.com/) (`libraylib.so` on Linux)
+To use Chez GameKit, you will need:
+
+*   [Chez Scheme](https://cisco.github.io/ChezScheme/)
+*   [raylib](https://www.raylib.com/) (specifically, `libraylib.so` on Linux systems)
 
 ## Usage
+
+To integrate Chez GameKit into your project, simply load the `chez-gamekit.ss` file:
 
 ```scheme
 (load "chez-gamekit.ss")
@@ -15,7 +38,7 @@ Minimal 2D ECS game framework for Chez Scheme, built on raylib.
 
 ## Example
 
-A small platformer covering the main features — ECS, sprites, physics, input, camera, tilemaps, and scenes.
+The following example demonstrates a small platformer, showcasing the framework's core features such as ECS, sprites, physics, input, camera, tilemaps, and scenes.
 
 ```scheme
 (load "chez-gamekit.ss")
@@ -98,9 +121,11 @@ A small platformer covering the main features — ECS, sprites, physics, input, 
   (lambda () (go-to gameplay)))
 ```
 
-## ECS
+## API Reference
 
-### Components and entities
+### ECS (Entity-Component-System)
+
+#### Components and Entities
 
 ```scheme
 (component position (x y))   ; component with fields
@@ -112,7 +137,7 @@ A small platformer covering the main features — ECS, sprites, physics, input, 
 
 `spawn` can bind a name at the top level: `(spawn player (position 0 0))` expands to `(define player (spawn ...))`. Inside `on-enter`, use `(define player #f)` + `(set! player (spawn ...))`.
 
-### Systems
+#### Systems
 
 ```scheme
 ;;; runs once per entity that has all listed components
@@ -130,7 +155,7 @@ A small platformer covering the main features — ECS, sprites, physics, input, 
 
 Inside a system, `entity-id` is bound to the current entity's id. Systems run in registration order.
 
-### Reading and writing components
+#### Reading and Writing Components
 
 ```scheme
 (get comp field)             ; inside a system — comp is the bound variable
@@ -139,7 +164,7 @@ Inside a system, `entity-id` is bound to the current entity's id. Systems run in
 (put! id comp field expr)    ; outside a system
 ```
 
-### Component membership
+#### Component Membership
 
 ```scheme
 (add-component id comp)
@@ -148,7 +173,7 @@ Inside a system, `entity-id` is bound to the current entity's id. Systems run in
 (has-component? id comp)
 ```
 
-### Events
+#### Events
 
 ```scheme
 (emit name (field val) ...)
@@ -159,7 +184,7 @@ Inside a system, `entity-id` is bound to the current entity's id. Systems run in
 
 Events emitted during a frame are dispatched at the end of that frame. `on-global` handlers should be registered outside scenes if they need to persist across `go-to`.
 
-### Scenes
+#### Scenes
 
 ```scheme
 (scene name
@@ -171,7 +196,7 @@ Events emitted during a frame are dispatched at the end of that frame. `on-globa
 
 `go-to` clears scene-local systems, handlers, and the event queue, then despawns all entities that don't have a `persistent` component. Systems registered with `persistent` survive transitions.
 
-## Assets
+### Assets
 
 ```scheme
 (load-asset name "path/to/file.png")                         ; default: load-texture / unload-texture
@@ -186,7 +211,7 @@ Events emitted during a frame are dispatched at the end of that frame. `on-globa
 
 `load-asset` is idempotent — loading the same name twice is a no-op.
 
-## Camera
+### Camera
 
 ```scheme
 (make-camera tx ty)                        ; offset centered on screen, zoom 1.0
@@ -203,12 +228,12 @@ Events emitted during a frame are dispatched at the end of that frame. `on-globa
 (camera-zoom      cam)
 ```
 
-## Sprites
+### Sprites
 
 The `sprite` component fields, in order:
 
 | Field | Description |
-|---|---|
+| :---- | :---------- |
 | `texture` | Asset name symbol |
 | `frame-w` | Frame width in pixels |
 | `frame-h` | Frame height in pixels |
@@ -233,7 +258,7 @@ To render sprites, include `(render-sprites)` inside `with-camera`:
   (render-sprites))
 ```
 
-## Tilemap
+### Tilemap
 
 Loads [Tiled](https://www.mapeditor.org/) maps exported as JSON.
 
@@ -250,7 +275,7 @@ Loads [Tiled](https://www.mapeditor.org/) maps exported as JSON.
 
 Object accessors: `obj-x`, `obj-y`, `obj-width`, `obj-height`, `obj-name`, `obj-type`, `obj-id`.
 
-## Input
+### Input
 
 ```scheme
 (key-down?     key)
@@ -265,41 +290,13 @@ Mouse: `is-mouse-button-pressed`, `is-mouse-button-down`, `is-mouse-button-relea
 For text fields, use `text-input` instead of key polling:
 
 ```scheme
-(system name-entry ()
-  (set! buf (string-append buf (text-input)))
-  (when (and (key-pressed? key-backspace) (> (string-length buf) 0))
-    (set! buf (substring buf 0 (- (string-length buf) 1)))))
-```
-
-## Game loop
-
-```scheme
-(game-loop title width height fps)
-(game-loop title width height fps init-thunk)
-```
-
-`dt` is bound to the seconds elapsed since the last frame, updated every frame.
-
-## Drawing
-
-Direct raylib calls, available for custom rendering:
-
-`draw-pixel`, `draw-line`, `draw-circle`, `draw-rectangle`, `draw-rectangle-rec`, `draw-rectangle-lines`, `draw-text`, `draw-text-centered`, `draw-fps`, `draw-texture`, `draw-texture-rec`, `draw-texture-pro`.
-
-Colors: `black`, `white`, `red`, `green`, `blue`, `yellow`, `orange`, `gray`, `darkgray`, `lightgray`, `raywhite`, and more. Custom: `(make-color r g b a)`.
-
-## Audio
-
-```scheme
-(load-asset shoot "shoot.wav" load-sound unload-sound)
-(play-sound  (get-asset shoot))
-(stop-sound  (get-asset shoot))
-(pause-sound (get-asset shoot))
-(resume-sound (get-asset shoot))
-(is-sound-playing (get-asset shoot))
-(set-master-volume 0.8)
+(text-input)
 ```
 
 ## License
 
-MIT
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+Contributions are welcome! Please feel free to open issues or submit pull requests on the [GitHub repository](https://github.com/KaiqueZambrano/chez-gamekit).
