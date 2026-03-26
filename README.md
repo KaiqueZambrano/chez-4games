@@ -1,6 +1,6 @@
 # chez-gamekit
 
-Minimal 2D ECS-based game framework for Chez Scheme, built on top of raylib. 
+Minimal 2D ECS-based game framework for Chez Scheme, built on top of raylib.
 Built for personal use — simple 2D games. No package system, no dependencies beyond Chez Scheme and raylib.
 
 ## Requirements
@@ -10,33 +10,18 @@ Built for personal use — simple 2D games. No package system, no dependencies b
 
 ## Usage
 
-Load everything at once:
+Copy `chez-gamekit.ss` to your project and load it:
 
 ```scheme
 (load "chez-gamekit.ss")
 ```
 
-Or pick individual modules:
-
-```scheme
-(load "lib/raylib.ss")
-(load "lib/json.ss")
-(load "lib/ecs.ss")
-(load "lib/assets.ss")      ; asset cache
-(load "lib/camera.ss")      ; global 2D camera — requires raylib.ss
-(load "lib/animation.ss")   ; sprite animation — requires ecs.ss + assets.ss + camera.ss
-(load "lib/game-loop.ss")   ; dt, text input, game-loop — requires ecs.ss + raylib.ss
-(load "lib/tilemap.ss")     ; Tiled JSON tilemaps — requires json.ss + assets.ss + camera.ss + raylib.ss
-```
-
-Load order matters when loading individually — each module requires the ones listed above it.
-
-## raylib.ss
+## raylib
 
 Covers the basics for 2D games:
 
 - Window management (`init-window`, `close-window`, `window-should-close`, `get-screen-width`, `get-screen-height`, etc.)
-- Drawing (`begin-drawing`, `end-drawing`, `clear-background`, `draw-rectangle`, `draw-circle`, `draw-text`, `draw-fps`, etc.)
+- Drawing (`begin-drawing`, `end-drawing`, `clear-background`, `draw-rectangle`, `draw-circle`, `draw-text`, `draw-fps`, `draw-text-centered`, etc.)
 - Textures (`load-texture`, `draw-texture`, `draw-texture-rec`, `draw-texture-pro`)
 - Camera 2D (`begin-mode-2d`, `end-mode-2d`, `make-camera2d`)
 - Keyboard and mouse input — full key constants (`key-a` through `key-z`, `key-up/down/left/right`, F-keys, etc.)
@@ -45,7 +30,7 @@ Covers the basics for 2D games:
 
 Foreign memory (`make-vec2`, `make-rect`, `make-color`, `make-camera2d`) is managed automatically via a guardian drained once per frame by the game loop — no manual `free-ptr` calls needed in normal use. `free-ptr` remains available for explicit early release if needed.
 
-## json.ss
+## JSON
 
 A self-contained JSON parser. No dependencies.
 
@@ -63,15 +48,13 @@ JSON `null` is represented as the symbol `'null` (not `#f`) to distinguish it fr
 (json-value? v)   ; #t if v is anything other than #f (i.e. key was present)
 ```
 
-## ecs.ss
+## ECS
 
 A minimal ECS with a DSL. Entities and components are stored in hashtables.
 
 ### Basic example
 
 ```scheme
-(load "lib/ecs.ss")
-
 (component position (x y))
 (component velocity (dx dy))
 (component health (hp))
@@ -96,18 +79,15 @@ A minimal ECS with a DSL. Entities and components are stored in hashtables.
 ### Scene example
 
 ```scheme
-(load "lib/ecs.ss")
-
 (component position (x y))
 (component velocity (dx dy))
 (component persistent)        ; survives scene transitions
 
-;;; player is defined here so it can be set! inside on-enter
 (define player #f)
 
 (event hit (target damage))
 
-;;; on-global handlers are cleared on go-to — register them outside scenes
+;;; on-global handlers survive go-to — register them outside scenes
 (on-global hit (target damage)
   (display (list 'hit player 'damage damage)) (newline))
 
@@ -156,8 +136,9 @@ A minimal ECS with a DSL. Entities and components are stored in hashtables.
 | `(add-component id comp (field val) ...)` | Adds a component with fields |
 | `(remove-component id comp)` | Removes a component from an entity |
 | `(has-component? id comp)` | Returns `#t` if entity has component |
-| `(system name ((var : comp) ...) body ...)` | Defines and registers a system |
-| `(system name ((var : comp) ...) not (excl ...) body ...)` | Same, with exclusions |
+| `(system name ((var : comp) ...) body ...)` | Defines and registers a system for the current scene |
+| `(system name persistent ((var : comp) ...) body ...)` | Same, but survives scene transitions |
+| `(system name ((var : comp) ...) not (excl ...) body ...)` | System with component exclusions |
 | `(global-system name body ...)` | Registers a system that runs once per frame, without iterating entities |
 | `(event name (field ...))` | Declares an event type and validates `emit` calls against it |
 | `(emit name (field val) ...)` | Enqueues an event |
@@ -171,13 +152,13 @@ Inside a system, `entity-id` is always bound to the current entity's id.
 
 `entity` only works at the top level — use `define` + `set!` + `spawn` inside `on-enter`.
 
-Systems and handlers run in registration order (the order they were defined inside `on-enter`).
+Systems and handlers run in registration order (the order they appear inside `on-enter`).
 
 Events emitted during dispatch are enqueued and processed on the next `(run)` call, not the current one.
 
-`go-to` clears systems, global systems, event handlers (local and global), and the event queue, then removes all non-`persistent` entities. Register `on-global` handlers outside scenes if they need to survive transitions.
+`go-to` clears scene-local systems, event handlers, and the event queue, then removes all non-`persistent` entities. `persistent` systems (registered with the `persistent` keyword) and `on-global` handlers survive transitions. Register `on-global` handlers outside scenes if they need to persist.
 
-## assets.ss
+## Assets
 
 An asset cache keyed by symbol. Each entry stores the asset value alongside its unloader, so `unload-asset` always calls the right cleanup function automatically.
 
@@ -196,38 +177,39 @@ An asset cache keyed by symbol. Each entry stores the asset value alongside its 
 
 `unload-all-assets!` and `unload-assets-except!` are useful in `on-exit` when scenes have independent asset sets.
 
-## camera.ss
+## Camera
 
-A single global camera controlling the coordinate space for both sprite and tilemap rendering. Set it once per scene and everything aligns automatically.
+A single global camera controlling the coordinate space for sprite and tilemap rendering. Set it once per scene and everything aligns automatically.
 
 ```scheme
-(set-camera! cam)    ; activate a camera2d for all render systems
+(make-camera tx ty)                        ; camera centered on screen
+(make-camera tx ty offset-x offset-y)     ; explicit offset, zoom 1.0
+(make-camera tx ty offset-x offset-y zoom)
+
+(set-camera! cam)    ; activate a camera for all render systems
 (clear-camera!)      ; return to screen-space rendering
+
+(camera-follow! cam x y)        ; snap camera target to position
+(camera-follow! cam x y speed)  ; lerp camera target toward position
+(camera-clamp!  cam world-w world-h)  ; keep camera within world bounds
+(camera-zoom-set! cam z)
+(camera-zoom      cam)
 ```
 
-`current-camera` is `#f` by default (screen-space). Both `render-animation-system` and `render-tilemap` consult it automatically — no need to pass the camera around.
+`current-camera` is `#f` by default (screen-space). Both `(sprites)` inside `render-world` and `render-tilemap` consult it automatically.
 
-## animation.ss
+## Sprites
 
-Sprite sheet animation built on top of the ECS.
+The `sprite` component handles spritesheet animation. The frame-advance system is installed automatically by `game-loop` — no setup needed.
 
-### Sprite animation
-
-```scheme
-(make-animation-system)         ; registers the frame-advance system
-(make-render-animation-system)  ; registers the draw system
-```
-
-Both must be called inside `on-enter` to register for the current scene. The render system expects a `position` component on the same entity and respects `current-camera` automatically.
-
-The `animation` component fields:
+### Component fields
 
 | Field | Description |
 |---|---|
 | `texture` | Asset name symbol |
 | `frame-w` | Frame width in pixels |
 | `frame-h` | Frame height in pixels |
-| `row` | Row in the spritesheet (0-indexed) — use different rows for different animations on the same sheet |
+| `row` | Row in the spritesheet (0-indexed) |
 | `frames` | Total frames in this animation |
 | `speed` | Frames per second |
 | `scale-x` | Horizontal scale: `1.0` = normal, `-1.0` = flip |
@@ -235,34 +217,89 @@ The `animation` component fields:
 | `frame` | Current frame — internal state, start at `0` |
 | `elapsed` | Time accumulator — internal state, start at `0.0` |
 
+### Constructors
+
+```scheme
+;;; inline — pass all fields directly to spawn
+(spawn
+  (position 0 0)
+  (sprite player-idle 32 32 0 4 8 1.0 1.0 0 0.0))
+
+;;; make-sprite — positional, with defaults
+;;; (make-sprite tex fw fh frames)              row=0, speed=8, scale=1.0
+;;; (make-sprite tex fw fh frames row)
+;;; (make-sprite tex fw fh frames row speed)
+;;; (make-sprite tex fw fh frames row speed scale-x scale-y)
+(spawn
+  (position 0 0)
+  (sprite (make-sprite player-idle 32 32 4)))
+
+;;; make-sprite-set — named animations, switch at runtime
+(define animations
+  (make-sprite-set
+    (idle (make-sprite player-idle 32 32 4))
+    (running (make-sprite player-run  32 32 8 0 12))))
+
+(spawn
+  (position 0 0)
+  (sprite animations))
+```
+
+### Switching sprites at runtime
+
+```scheme
+;;; swap texture only — keeps current row, frame, speed
+(sprite-texture! spr player-run)
+
+;;; swap to a named animation in a sprite-set — resets frame to 0
+(switch-sprite! spr run)
+```
+
+### Rendering
+
+Use `render-world` inside `on-enter` to set up the scene's render pass. The `(sprites)` clause draws all entities with both `sprite` and `position` components, respecting `current-camera`.
+
+```scheme
+(render-world cam
+  (render-tilemap level #f)
+  (sprites))
+```
+
+`render-world` accepts any number of expressions interleaved with `(sprites)`, all wrapped in a single `begin-mode-2d` / `end-mode-2d` block.
+
 ### Example
 
 ```scheme
 (load "chez-gamekit.ss")
 
-(define cam (make-camera2d 0 0 200 150 1.0))  ; centered on 400x300 window
 (define player #f)
-(define facing 1.0)  ; 1.0 = right, -1.0 = left
 
 (scene gameplay
   (on-enter
-    (load-asset hero "assets/hero.png")
-    (set-camera! cam)
-    (make-animation-system)
-    (make-render-animation-system)
+    (load-asset player-idle "assets/idle.png")
+    (load-asset player-run  "assets/run.png")
+
+    (set-camera! (make-camera 0 0 200 150))
+
     (set! player (spawn
       (position 0 0)
-      (animation hero 32 32 0 4 8 1.0 1.0 0 0.0)))
-    (system input ((pos : position) (anim : animation))
+      (sprite (make-sprite player-idle 32 32 4))))
+
+    (render-world (make-camera 0 0 200 150)
+      (sprites))
+
+    (system input ((pos : position) (spr : sprite))
       (cond
         ((is-key-down key-right)
          (put! pos x (+ (get pos x) 2))
-         (set! facing  1.0)
-         (put! anim scale-x  1.0))
+         (put! spr scale-x  1.0)
+         (sprite-texture! spr player-run))
         ((is-key-down key-left)
          (put! pos x (- (get pos x) 2))
-         (set! facing -1.0)
-         (put! anim scale-x -1.0)))))
+         (put! spr scale-x -1.0)
+         (sprite-texture! spr player-run))
+        (else
+         (sprite-texture! spr player-idle)))))
   (on-exit
     (clear-camera!)
     (unload-all-assets!)))
@@ -271,7 +308,7 @@ The `animation` component fields:
   (lambda () (go-to gameplay)))
 ```
 
-## game-loop.ss
+## Game loop
 
 Delta time, text input, and the main loop.
 
@@ -284,10 +321,9 @@ Delta time, text input, and the main loop.
 
 The window and audio device are always closed cleanly on exit, even if an error is raised during the loop.
 
-`text-input` is meant for text fields, chat boxes, and similar UI. For game controls, use `is-key-down` / `is-key-pressed` directly.
+`text-input` is meant for text fields and chat boxes. For game controls, use `is-key-down` / `is-key-pressed` directly.
 
 ```scheme
-;;; collecting a player name
 (define name-buffer "")
 
 (system name-entry ()
@@ -298,9 +334,9 @@ The window and audio device are always closed cleanly on exit, even if an error 
             (substring name-buffer 0 (- (string-length name-buffer) 1))))))
 ```
 
-## tilemap.ss
+## Tilemap
 
-Loads and renders [Tiled](https://www.mapeditor.org/) maps exported as JSON. Supports tile layers and object layers. Respects `current-camera` from `camera.ss` automatically — no need to pass the camera manually.
+Loads and renders [Tiled](https://www.mapeditor.org/) maps exported as JSON. Supports tile layers and object layers. Respects `current-camera` automatically.
 
 ```scheme
 (load-tilemap level1 "assets/level1.json")    ; loads map and all referenced tilesets
